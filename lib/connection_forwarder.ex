@@ -3,17 +3,16 @@ defmodule ConnectionForwarder do
 
   require Logger
 
-  def start_link(%{scheme: _scheme, host: _host, port: _port, base_path: _base_path} = options) do
-    IO.puts("Going to init connection")
-    GenServer.start_link(__MODULE__, options)
+  @type connection_spec :: {:http | :https, String.t(), integer}
+
+  @spec start_link(connection_spec) :: {:ok, PID} | {:error, any}
+  def start_link(connection_spec) do
+    GenServer.start_link(__MODULE__, connection_spec)
   end
 
-  # def start_link( {scheme, host, port}) do
-  #   GenServer.start_link(__MODULE__, {scheme, host, port})
-  # end
-
-  def forward(conn, extra_path, backend) do
-    %{host: host, path: path, port: port, scheme: string_scheme} = URI.parse(backend)
+  @spec forward(Plug.Conn.t(), [String.t()], String.t()) :: Plug.Conn.t() | {:error, any()}
+  def forward(frontend_conn, extra_path, backend_string) do
+    %{host: host, path: base_path, port: port, scheme: string_scheme} = URI.parse(backend_string)
 
     scheme =
       case string_scheme do
@@ -22,13 +21,20 @@ defmodule ConnectionForwarder do
         _ -> :unknown
       end
 
-    conn = Plug.Conn.assign(conn, :extra_path, extra_path)
+    frontend_conn =
+      frontend_conn
+      |> Plug.Conn.assign(:extra_path, extra_path)
+      |> Plug.Conn.assign(:base_path, base_path)
 
-    {:ok, pid} =
-      ConnectionForwarder.start_link(%{scheme: scheme, host: host, port: port, base_path: path})
+    case ConnectionForwarder.start_link({scheme, host, port}) do
+      {:ok, pid} ->
+        {:ok, conn} = ConnectionForwarder.proxy(pid, frontend_conn)
+        conn
 
-    {:ok, conn} = ConnectionForwarder.proxy(pid, conn)
-    conn
+      {:error, reason} ->
+        IO.inspect(reason, label: "Could not init connection forwarder process")
+        {:error, reason}
+    end
   end
 
   def proxy(pid, conn) do
@@ -36,29 +42,21 @@ defmodule ConnectionForwarder do
     GenServer.call(pid, {:proxy, conn})
   end
 
-  # def request(pid, method, path, headers, body) do
-  #   GenServer.call(pid, {:request, method, path, headers, body})
-  # end
-
   ## Callbacks
   @impl true
-  def init(%{scheme: scheme, host: host, port: port, base_path: _base_path} = options) do
-    IO.puts("In init")
-
-    {:ok, conn} =
-      Mint.HTTP.connect(scheme, host, port)
-      |> IO.inspect(label: "Response from connect")
-
-    {:ok, Map.put(options, :backend_host_conn, conn)}
+  def init({scheme, host, port}) do
+    {:ok, conn} = Mint.HTTP.connect(scheme, host, port)
+    {:ok, %{backend_host_conn: conn}}
   end
 
   @impl true
   def handle_call({:proxy, frontend_conn}, from, state) do
     IO.inspect(state, label: "connection start state")
 
-    %{base_path: base_path, backend_host_conn: backend_host_conn} = state
+    %{backend_host_conn: backend_host_conn} = state
 
     extra_path = frontend_conn.assigns[:extra_path]
+    base_path = frontend_conn.assigns[:base_path]
     IO.inspect(base_path, label: "Our base path")
     IO.inspect(extra_path, label: "Our extra path")
 
@@ -88,11 +86,11 @@ defmodule ConnectionForwarder do
   def handle_info(message, %{backend_conn: backend_conn} = state) do
     case Mint.HTTP.stream(backend_conn, message) do
       :unknown ->
-        IO.inspect( message, label: "Unknown message received" )
+        IO.inspect(message, label: "Unknown message received")
         {:noreply, state}
 
       error = {:error, _, _, _} ->
-        IO.inspect( error, label: "HTTP stream error occurred" )
+        IO.inspect(error, label: "HTTP stream error occurred")
         {:noreply, state}
 
       {:ok, backend_conn, responses} ->
@@ -164,12 +162,12 @@ defmodule ConnectionForwarder do
   end
 
   defp process_chunk({:error, _, _} = message, state) do
-    IO.inspect( message, label: "Error message occurred" )
+    IO.inspect(message, label: "Error message occurred")
     state
   end
 
   defp process_chunk(message, state) do
-    IO.inspect( message, label: "Unprocessed message" )
+    IO.inspect(message, label: "Unprocessed message")
     state
   end
 end
