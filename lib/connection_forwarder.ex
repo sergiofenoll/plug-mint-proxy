@@ -4,14 +4,20 @@ defmodule ConnectionForwarder do
   require Logger
 
   @type connection_spec :: {:http | :https, String.t(), integer}
+  @type backend_string_info :: {:http | :https, String.t(), integer, String.t()}
 
-  @spec start_link(connection_spec) :: {:ok, PID} | {:error, any}
+  @spec start_link(connection_spec) :: {:ok, pid()} | {:error, any}
   def start_link(connection_spec) do
     GenServer.start_link(__MODULE__, connection_spec)
   end
 
-  @spec forward(Plug.Conn.t(), [String.t()], String.t()) :: Plug.Conn.t() | {:error, any()}
-  def forward(frontend_conn, extra_path, backend_string) do
+  @spec start(connection_spec) :: {:ok, pid()} | {:error, any}
+  def start(connection_spec) do
+    GenServer.start(__MODULE__, connection_spec)
+  end
+
+  @spec extract_info_from_backend_string(String.t()) :: backend_string_info
+  def extract_info_from_backend_string(backend_string) do
     %{host: host, path: base_path, port: port, scheme: string_scheme} = URI.parse(backend_string)
 
     scheme =
@@ -21,45 +27,78 @@ defmodule ConnectionForwarder do
         _ -> :unknown
       end
 
+    base_path = base_path || "/"
+
+    {scheme, host, port, base_path}
+  end
+
+  @spec forward(Plug.Conn.t(), [String.t()], String.t() | backend_string_info) ::
+          Plug.Conn.t() | {:error, any()}
+  def forward(frontend_conn, extra_path, backend_string) when is_binary(backend_string) do
+    backend_string_info = extract_info_from_backend_string(backend_string)
+    forward(frontend_conn, extra_path, backend_string_info)
+  end
+
+  def forward(frontend_conn, extra_path, {scheme, host, port, base_path}) do
     frontend_conn =
       frontend_conn
       |> Plug.Conn.assign(:extra_path, extra_path)
       |> Plug.Conn.assign(:base_path, base_path)
 
-    case ConnectionForwarder.start_link({scheme, host, port}) do
+    # case ConnectionForwarder.start_link({scheme, host, port}) do
+    connection_spec = {scheme, host, port}
+
+    case ConnectionPool.get_connection(connection_spec) do
       {:ok, pid} ->
-        {:ok, conn} = ConnectionForwarder.proxy(pid, frontend_conn)
-        conn
+        case ConnectionForwarder.proxy(pid, frontend_conn) do
+          {:ok, conn} ->
+            conn
+
+          {:error, _} ->
+            # ignore the old connection and try with a fresh connection
+
+            # TODO: kill the old connection process (no need to remove
+            # it, it's not in the pool)
+            case ConnectionPool.get_new_connection(connection_spec) do
+              {:error, reason} ->
+                IO.inspect({:error, reason}, label: "An error occurred")
+                frontend_conn
+
+              {:ok, pid} ->
+                case ConnectionForwarder.proxy(pid, frontend_conn) do
+                  {:ok, conn} ->
+                    conn
+
+                  {:error, reason} ->
+                    IO.inspect({:error, reason}, label: "An error occurred")
+                    frontend_conn
+                end
+            end
+        end
 
       {:error, reason} ->
-        IO.inspect(reason, label: "Could not init connection forwarder process")
-        {:error, reason}
+        IO.inspect({:error, reason}, label: "An error occurred")
+        frontend_conn
     end
   end
 
   def proxy(pid, conn) do
-    IO.puts("Starting the proxy")
     GenServer.call(pid, {:proxy, conn})
   end
 
   ## Callbacks
   @impl true
-  def init({scheme, host, port}) do
+  def init({scheme, host, port} = connection_spec) do
     {:ok, conn} = Mint.HTTP.connect(scheme, host, port)
-    {:ok, %{backend_host_conn: conn}}
+    {:ok, %{backend_host_conn: conn, connection_spec: connection_spec}}
   end
 
   @impl true
   def handle_call({:proxy, frontend_conn}, from, state) do
-    IO.inspect(state, label: "connection start state")
-
     %{backend_host_conn: backend_host_conn} = state
 
     extra_path = frontend_conn.assigns[:extra_path]
     base_path = frontend_conn.assigns[:base_path]
-    IO.inspect(base_path, label: "Our base path")
-    IO.inspect(extra_path, label: "Our extra path")
-
     full_path = base_path <> Enum.join(extra_path, "/")
 
     headers = []
@@ -91,6 +130,8 @@ defmodule ConnectionForwarder do
 
       error = {:error, _, _, _} ->
         IO.inspect(error, label: "HTTP stream error occurred")
+        # TODO: kill the connection PID
+        ConnectionPool.remove_connection(Map.get(state, :connection_spec), self())
         {:noreply, state}
 
       {:ok, backend_conn, responses} ->
@@ -101,9 +142,8 @@ defmodule ConnectionForwarder do
         new_state =
           responses
           |> Enum.reduce(new_state, fn chunk, state ->
-            chunk
-            |> IO.inspect(label: "Processing chunk")
-            |> process_chunk(state)
+            # IO.inspect(elem(chunk, 0), label: "Processing chunk type")
+            process_chunk(chunk, state)
           end)
 
         {:noreply, new_state}
@@ -150,13 +190,18 @@ defmodule ConnectionForwarder do
     end
   end
 
-  defp process_chunk({:done, _}, %{from: from, frontend_conn: frontend_conn} = state) do
+  defp process_chunk(
+         {:done, _},
+         %{from: from, frontend_conn: frontend_conn, connection_spec: connection_spec} = state
+       ) do
     GenServer.reply(from, {:ok, frontend_conn})
 
     # should this include backend_host_conn ?
     new_state =
       [:from, :request_ref, :headers_sent, :response_status]
       |> Enum.reduce(state, &Map.delete(&2, &1))
+
+    ConnectionPool.return_connection(connection_spec, self())
 
     new_state
   end
@@ -167,7 +212,7 @@ defmodule ConnectionForwarder do
   end
 
   defp process_chunk(message, state) do
-    IO.inspect(message, label: "Unprocessed message")
+    IO.inspect(elem(message, 0), label: "Unprocessed message of type")
     state
   end
 end
