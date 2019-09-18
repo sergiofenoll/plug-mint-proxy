@@ -1,18 +1,3 @@
-# defmodule ConnectionForwarder do
-#   use GenServer
-
-#   @impl true
-#   def init( %{ conn: conn, kind: kind, host: host, port: port } = options ) do
-#     {:ok, conn_back } = Mint.HTTP.connect(kind, host, port)
-
-#     options = Map.put( options, :conn_bak, conn_back )
-
-#     {:ok, options }
-#   end
-
-#   def handle_info({:tcp, _
-# end
-
 defmodule ConnectionForwarder do
   use GenServer
 
@@ -26,6 +11,25 @@ defmodule ConnectionForwarder do
   # def start_link( {scheme, host, port}) do
   #   GenServer.start_link(__MODULE__, {scheme, host, port})
   # end
+
+  def forward(conn, extra_path, backend) do
+    %{host: host, path: path, port: port, scheme: string_scheme} = URI.parse(backend)
+
+    scheme =
+      case string_scheme do
+        "http" -> :http
+        "https" -> :https
+        _ -> :unknown
+      end
+
+    conn = Plug.Conn.assign(conn, :extra_path, extra_path)
+
+    {:ok, pid} =
+      ConnectionForwarder.start_link(%{scheme: scheme, host: host, port: port, base_path: path})
+
+    {:ok, conn} = ConnectionForwarder.proxy(pid, conn)
+    conn
+  end
 
   def proxy(pid, conn) do
     IO.puts("Starting the proxy")
@@ -45,19 +49,25 @@ defmodule ConnectionForwarder do
       Mint.HTTP.connect(scheme, host, port)
       |> IO.inspect(label: "Response from connect")
 
-    {:ok, Map.put(options, :backend_conn, conn)}
+    {:ok, Map.put(options, :backend_host_conn, conn)}
   end
 
   @impl true
   def handle_call({:proxy, frontend_conn}, from, state) do
     IO.inspect(state, label: "connection start state")
 
-    %{base_path: _base_path, backend_conn: backend_conn} = state
+    %{base_path: base_path, backend_host_conn: backend_host_conn} = state
+
+    extra_path = frontend_conn.assigns[:extra_path]
+    IO.inspect(base_path, label: "Our base path")
+    IO.inspect(extra_path, label: "Our extra path")
+
+    full_path = base_path <> Enum.join(extra_path, "/")
 
     headers = []
     body = ""
 
-    case Mint.HTTP.request(backend_conn, "GET", "/", headers, body) do
+    case Mint.HTTP.request(backend_host_conn, "GET", full_path, headers, body) do
       {:ok, backend_conn, request_ref} ->
         new_state =
           state
@@ -75,12 +85,14 @@ defmodule ConnectionForwarder do
   end
 
   @impl true
-  def handle_info(message, state) do
-    %{backend_conn: backend_conn} = state
-
+  def handle_info(message, %{backend_conn: backend_conn} = state) do
     case Mint.HTTP.stream(backend_conn, message) do
       :unknown ->
-        _ = Logger.error(fn -> "Received unknown message: " <> inspect(message) end)
+        IO.inspect( message, label: "Unknown message received" )
+        {:noreply, state}
+
+      error = {:error, _, _, _} ->
+        IO.inspect( error, label: "HTTP stream error occurred" )
         {:noreply, state}
 
       {:ok, backend_conn, responses} ->
@@ -143,10 +155,21 @@ defmodule ConnectionForwarder do
   defp process_chunk({:done, _}, %{from: from, frontend_conn: frontend_conn} = state) do
     GenServer.reply(from, {:ok, frontend_conn})
 
+    # should this include backend_host_conn ?
     new_state =
-      [:from, :request_ref, :backend_conn, :headers_sent, :response_status]
+      [:from, :request_ref, :headers_sent, :response_status]
       |> Enum.reduce(state, &Map.delete(&2, &1))
 
     new_state
+  end
+
+  defp process_chunk({:error, _, _} = message, state) do
+    IO.inspect( message, label: "Error message occurred" )
+    state
+  end
+
+  defp process_chunk(message, state) do
+    IO.inspect( message, label: "Unprocessed message" )
+    state
   end
 end
