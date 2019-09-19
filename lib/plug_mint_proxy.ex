@@ -1,61 +1,26 @@
 defmodule PlugMintProxy do
   @moduledoc """
   PlugMintProxy allows to proxy content from Plug
+
+  The routing process is governed by the Proxy module
   """
 
-  # @behaviour Plug
+  use Application
+  require Logger
 
-  # @default_opts %{ to: "redpencil.io", port: 80, kind: :http, path: "" }
+  def start(_type, _args) do
+    public_port_env =
+      System.get_env("PROXY_PORT") && elem(Integer.parse(System.get_env("PROXY_PORT")), 0)
 
-  use Plug.Router
+    port = public_port_env || 8888
 
-  def start(_argv) do
-    port = 8888
-    IO.puts("Starting Plug with Cowboy on port #{port}")
-    Plug.Adapters.Cowboy.http(__MODULE__, [], port: port)
-    # :timer.sleep(:infinity)
-  end
+    children = [
+      {ConnectionPool, {}},
+      {Plug.Cowboy, scheme: :http, plug: Proxy, options: [port: port]}
+    ]
 
-  plug(Plug.Logger)
-  plug(:match)
-  plug(:dispatch)
+    Logger.info("PlugMintProxy started on #{port}")
 
-  defmacro easy_forward(conn, path, endpoint) do
-    endpoint_info =
-      if is_binary(endpoint) do
-        ConnectionForwarder.extract_info_from_backend_string(endpoint)
-      else
-        endpoint
-      end
-
-    IO.inspect(endpoint_info)
-
-    quote do
-      ConnectionForwarder.forward(
-        unquote(conn),
-        unquote(path),
-        unquote(Macro.escape(endpoint_info))
-      )
-    end
-  end
-
-  match "/" do
-    easy_forward(conn, [], "http://redpencil.io")
-    # ConnectionForwarder.forward conn, [], "http://redpencil.io/"
-    # {:ok, pid } = ConnectionForwarder.start_link( %{ scheme: :http, host: "redpencil.io", port: 80, base_path: "/" } )
-    # {:ok, conn } = ConnectionForwarder.proxy( pid, conn )
-    # conn
-  end
-
-  match "/hello/*path" do
-    ConnectionForwarder.forward(conn, path, "https://veeakker.be/")
-
-    # {:ok, pid } = ConnectionForwarder.start_link( %{ scheme: :http, host: "redpencil.io", port: 80, base_path: "/" } )
-    # {:ok, conn } = ConnectionForwarder.proxy( pid, conn )
-    # conn
-  end
-
-  match "/nieuws/*path" do
-    ConnectionForwarder.forward(conn, path, "https://veeakker.be/nieuws/")
+    Supervisor.start_link(children, strategy: :one_for_one)
   end
 end

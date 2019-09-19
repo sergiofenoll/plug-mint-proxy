@@ -3,6 +3,7 @@ defmodule ConnectionPool do
 
   use GenServer
 
+
   def start_link(info) do
     GenServer.start_link(__MODULE__, info, name: @name)
   end
