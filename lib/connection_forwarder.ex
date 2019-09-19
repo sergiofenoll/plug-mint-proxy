@@ -39,6 +39,19 @@ defmodule ConnectionForwarder do
     forward(frontend_conn, extra_path, backend_string_info)
   end
 
+  defp get_full_plug_request_body(conn, body \\ "") do
+    case Plug.Conn.read_body(conn) do
+      {:ok, stuff, conn} ->
+        {:done, body <> stuff, conn}
+
+      {:more, stuff, conn} ->
+        get_full_plug_request_body(conn, body <> stuff)
+
+      {:error, reason} ->
+        {:error, conn, reason}
+    end
+  end
+
   def forward(frontend_conn, extra_path, {scheme, host, port, base_path}) do
     frontend_conn =
       frontend_conn
@@ -102,7 +115,7 @@ defmodule ConnectionForwarder do
     full_path = base_path <> Enum.join(extra_path, "/")
 
     headers = []
-    body = ""
+    { :done, body, frontend_conn } = get_full_plug_request_body( frontend_conn )
 
     case Mint.HTTP.request(backend_host_conn, "GET", full_path, headers, body) do
       {:ok, backend_conn, request_ref} ->
