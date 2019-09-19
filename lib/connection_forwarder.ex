@@ -117,7 +117,9 @@ defmodule ConnectionForwarder do
     headers = []
     { :done, body, frontend_conn } = get_full_plug_request_body( frontend_conn )
 
-    case Mint.HTTP.request(backend_host_conn, "GET", full_path, headers, body) do
+    method = Map.get(frontend_conn, :method)
+
+    case Mint.HTTP.request(backend_host_conn, method, full_path, headers, body) do
       {:ok, backend_conn, request_ref} ->
         new_state =
           state
