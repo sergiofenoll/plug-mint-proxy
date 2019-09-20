@@ -111,7 +111,7 @@ defmodule ConnectionForwarder do
     # TODO: get actual headers and pass them along
     # {{frontend_conn, backend_host_conn}, headers} =
     {headers, {frontend_conn, backend_host_conn}} =
-      []
+      Map.get( frontend_conn, :req_headers )
       |> ProxyManipulatorSettings.process_request_headers(
         manipulators,
         {frontend_conn, backend_host_conn}
