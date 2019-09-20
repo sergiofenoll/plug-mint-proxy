@@ -1,6 +1,8 @@
 defmodule ProxyManipulator do
   @moduledoc "Manipulators allow you to manipulate requests"
 
+  @optional_callbacks headers: 2, chunk: 2, finish: 2
+
   # No way to express an implementor of ProxyManipulator at this time, hence any()f
   @type t :: any()
 

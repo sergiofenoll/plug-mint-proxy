@@ -94,18 +94,30 @@ defmodule ProxyManipulatorSettings do
   @spec get_header_manipulator(any()) ::
           (headers, connection_pair -> {headers, connection_pair} | :skip)
   defp get_header_manipulator(module) do
-    &module.headers/2
+    if function_exported?(module, :headers, 2) do
+      &module.headers/2
+    else
+      fn _, _ -> :skip end
+    end
   end
 
   @spec get_chunk_manipulator(any()) ::
           (binary(), connection_pair -> {binary(), connection_pair} | :skip)
   defp get_chunk_manipulator(module) do
-    &module.chunk/2
+    if function_exported?(module, :chunk, 2) do
+      &module.chunk/2
+    else
+      fn _, _ -> :skip end
+    end
   end
 
   @spec get_finish_manipulator(any()) ::
           (boolean(), connection_pair -> {boolean(), connection_pair} | :skip)
   defp get_finish_manipulator(module) do
-    &module.finish/2
+    if function_exported?(module, :finish, 2) do
+      &module.finish/2
+    else
+      fn _, _ -> :skip end
+    end
   end
 end

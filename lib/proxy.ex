@@ -5,7 +5,7 @@ defmodule Proxy do
   plug(:match)
   plug(:dispatch)
 
-  @request_manipulators [AddDefaultAllowedGroups]
+  @request_manipulators [DropAcceptEncodingHeader,AddDefaultAllowedGroups]
   @response_manipulators [AddMuSecretHeader]
   @manipulators ProxyManipulatorSettings.make_settings(@request_manipulators, @response_manipulators)
 
