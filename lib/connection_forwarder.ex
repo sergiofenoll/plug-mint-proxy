@@ -183,7 +183,7 @@ defmodule ConnectionForwarder do
       ProxyManipulatorSettings.process_response_headers(
         headers,
         manipulators,
-        {backend_conn, frontend_conn}
+        {frontend_conn, backend_conn}
       )
 
     headers = [{"secret-be-here", "Here come mu.semte.ch powers"} | headers]
@@ -215,7 +215,7 @@ defmodule ConnectionForwarder do
       ProxyManipulatorSettings.process_response_chunk(
         new_data,
         manipulators,
-        {backend_conn, frontend_conn}
+        {frontend_conn, backend_conn}
       )
 
     state =
