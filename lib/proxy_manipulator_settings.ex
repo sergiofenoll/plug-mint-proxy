@@ -13,6 +13,13 @@ defmodule ProxyManipulatorSettings do
     %__MODULE__{request: request_manipulators, response: response_manipulators}
   end
 
+  @spec print_diagnostics( t ) :: any()
+  def print_diagnostics(%__MODULE__{request: request_manipulators, response: response_manipulators}) do
+    IO.puts("Discovered processor summary:")
+    IO.puts("request (headers: #{Enum.count(get_header_modules(request_manipulators))}, chunk: #{Enum.count(get_chunk_modules(request_manipulators))} finish: #{Enum.count(get_finish_modules(request_manipulators))})")
+    IO.puts("response (headers: #{Enum.count(get_header_modules(response_manipulators))} chunk: #{Enum.count(get_chunk_modules(response_manipulators))} finish: #{Enum.count(get_finish_modules(response_manipulators))})")
+  end
+
   @doc "Retrieves the manipulators for requests"
   def request_manipulators(%__MODULE__{request: request_manipulators}), do: request_manipulators
   @doc "Retrieves the manipulators for responses"
@@ -51,7 +58,6 @@ defmodule ProxyManipulatorSettings do
     |> run_manipulators(chunk, connection_pair)
   end
 
-  # TODO: wire finish into connection_forwarder.ex
   @spec process_request_finish(boolean(), t, connection_pair()) :: {binary(), connection_pair}
   def process_request_finish(finish, settings, connection_pair) do
     settings
@@ -119,5 +125,24 @@ defmodule ProxyManipulatorSettings do
     else
       fn _, _ -> :skip end
     end
+          end
+
+  # Debug reporting
+  @spec get_header_modules([any()]) :: [any()]
+  defp get_header_modules(modules) do
+    modules
+    |> Enum.filter( &function_exported?( &1, :headers, 2 ) )
+  end
+
+  @spec get_chunk_modules([any()]) :: [any()]
+  defp get_chunk_modules(modules) do
+    modules
+    |> Enum.filter( &function_exported?( &1, :chunk, 2 ) )
+  end
+
+  @spec get_finish_modules([any()]) :: [any()]
+  defp get_finish_modules(modules) do
+    modules
+    |> Enum.filter( &function_exported?( &1, :finish, 2 ) )
   end
 end

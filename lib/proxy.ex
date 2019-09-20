@@ -9,6 +9,10 @@ defmodule Proxy do
   @response_manipulators [Manipulators.AddHelloWorldHeader]
   @manipulators ProxyManipulatorSettings.make_settings(@request_manipulators, @response_manipulators)
 
+  def print_diagnostics() do
+    ProxyManipulatorSettings.print_diagnostics(@manipulators)
+  end
+
   defmacro easy_forward(conn, path, endpoint) do
     endpoint_info =
       if is_binary(endpoint) do
