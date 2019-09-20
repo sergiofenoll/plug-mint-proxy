@@ -32,14 +32,19 @@ defmodule ConnectionForwarder do
     {scheme, host, port, base_path}
   end
 
-  @spec forward(Plug.Conn.t(), [String.t()], String.t() | backend_string_info) ::
-          Plug.Conn.t() | {:error, any()}
-  def forward(frontend_conn, extra_path, backend_string) when is_binary(backend_string) do
+  @spec forward(
+          Plug.Conn.t(),
+          [String.t()],
+          String.t() | backend_string_info,
+          ProxyManipulatorSettings.t()
+        ) :: Plug.Conn.t() | {:error, any()}
+  def forward(frontend_conn, extra_path, backend_string, manipulators)
+      when is_binary(backend_string) do
     backend_string_info = extract_info_from_backend_string(backend_string)
-    forward(frontend_conn, extra_path, backend_string_info)
+    forward(frontend_conn, extra_path, backend_string_info, manipulators)
   end
 
-  def forward(frontend_conn, extra_path, {scheme, host, port, base_path}) do
+  def forward(frontend_conn, extra_path, {scheme, host, port, base_path}, manipulators) do
     frontend_conn =
       frontend_conn
       |> Plug.Conn.assign(:extra_path, extra_path)
@@ -50,7 +55,7 @@ defmodule ConnectionForwarder do
 
     case ConnectionPool.get_connection(connection_spec) do
       {:ok, pid} ->
-        case ConnectionForwarder.proxy(pid, frontend_conn) do
+        case ConnectionForwarder.proxy(pid, frontend_conn, manipulators) do
           {:ok, conn} ->
             conn
 
@@ -65,7 +70,7 @@ defmodule ConnectionForwarder do
                 frontend_conn
 
               {:ok, pid} ->
-                case ConnectionForwarder.proxy(pid, frontend_conn) do
+                case ConnectionForwarder.proxy(pid, frontend_conn, manipulators) do
                   {:ok, conn} ->
                     conn
 
@@ -82,8 +87,8 @@ defmodule ConnectionForwarder do
     end
   end
 
-  def proxy(pid, conn) do
-    GenServer.call(pid, {:proxy, conn})
+  def proxy(pid, conn, manipulators) do
+    GenServer.call(pid, {:proxy, conn, manipulators})
   end
 
   ## Callbacks
@@ -94,15 +99,27 @@ defmodule ConnectionForwarder do
   end
 
   @impl true
-  def handle_call({:proxy, frontend_conn}, from, state) do
+  def handle_call({:proxy, frontend_conn, manipulators}, from, state) do
     %{backend_host_conn: backend_host_conn} = state
+
+    state = Map.put(state, :manipulators, manipulators)
 
     extra_path = frontend_conn.assigns[:extra_path]
     base_path = frontend_conn.assigns[:base_path]
     full_path = base_path <> Enum.join(extra_path, "/")
 
-    headers = []
-    {:done, body, frontend_conn} = get_full_plug_request_body(frontend_conn)
+    # TODO: get actual headers and pass them along
+    # {{frontend_conn, backend_host_conn}, headers} =
+    {headers, {frontend_conn, backend_host_conn}} =
+      []
+      |> ProxyManipulatorSettings.process_request_headers(
+        manipulators,
+        {frontend_conn, backend_host_conn}
+      )
+
+    {:done, body, frontend_conn, backend_host_conn} =
+      get_full_plug_request_body(frontend_conn)
+      |> manipulate_full_plug_request_body(manipulators, backend_host_conn)
 
     method = Map.get(frontend_conn, :method)
 
@@ -159,10 +176,22 @@ defmodule ConnectionForwarder do
   end
 
   defp process_chunk({:headers, _, headers}, state) do
-    %{frontend_conn: frontend_conn} = state
+    %{frontend_conn: frontend_conn, backend_conn: backend_conn, manipulators: manipulators} =
+      state
+
+    {headers, {backend_conn, frontend_conn}} =
+      ProxyManipulatorSettings.process_response_headers(
+        headers,
+        manipulators,
+        {backend_conn, frontend_conn}
+      )
+
     headers = [{"secret-be-here", "Here come mu.semte.ch powers"} | headers]
-    new_frontend_conn = Plug.Conn.merge_resp_headers(frontend_conn, headers)
-    Map.put(state, :frontend_conn, new_frontend_conn)
+    frontend_conn = Plug.Conn.merge_resp_headers(frontend_conn, headers)
+
+    state
+    |> Map.put(:frontend_conn, frontend_conn)
+    |> Map.put(:backend_conn, backend_conn)
   end
 
   defp process_chunk(
@@ -179,7 +208,20 @@ defmodule ConnectionForwarder do
   end
 
   defp process_chunk({:data, _, new_data}, state) do
-    %{frontend_conn: frontend_conn} = state
+    %{frontend_conn: frontend_conn, backend_conn: backend_conn, manipulators: manipulators} =
+      state
+
+    {new_data, {backend_conn, frontend_conn}} =
+      ProxyManipulatorSettings.process_response_chunk(
+        new_data,
+        manipulators,
+        {backend_conn, frontend_conn}
+      )
+
+    state =
+      state
+      |> Map.put(:frontend_conn, frontend_conn)
+      |> Map.put(:backend_conn, backend_conn)
 
     case Plug.Conn.chunk(frontend_conn, new_data) do
       {:ok, new_frontend_conn} ->
@@ -194,14 +236,29 @@ defmodule ConnectionForwarder do
 
   defp process_chunk(
          {:done, _},
-         %{from: from, frontend_conn: frontend_conn, connection_spec: connection_spec} = state
+         %{
+           from: from,
+           frontend_conn: frontend_conn,
+           connection_spec: connection_spec,
+           backend_conn: backend_conn,
+           manipulators: manipulators
+         } = state
        ) do
+    {_, {frontend_conn, backend_conn}} =
+      ProxyManipulatorSettings.process_response_finish(
+        true,
+        manipulators,
+        {frontend_conn, backend_conn}
+      )
+
     GenServer.reply(from, {:ok, frontend_conn})
 
     # should this include backend_host_conn ?
     new_state =
       [:from, :request_ref, :headers_sent, :response_status]
       |> Enum.reduce(state, &Map.delete(&2, &1))
+      |> Map.put(:frontend_conn, frontend_conn)
+      |> Map.put(:backend_conn, backend_conn)
 
     ConnectionPool.return_connection(connection_spec, self())
 
@@ -229,5 +286,31 @@ defmodule ConnectionForwarder do
       {:error, reason} ->
         {:error, conn, reason}
     end
+  end
+
+  defp manipulate_full_plug_request_body(
+         {:error, frontend_conn, reason},
+         _manipulators,
+         _backend_conn
+       ) do
+    {:error, frontend_conn, reason}
+  end
+
+  defp manipulate_full_plug_request_body({:done, body, frontend_conn}, manipulators, backend_conn) do
+    {body,{frontend_conn, backend_conn}} =
+      ProxyManipulatorSettings.process_request_chunk(
+        body,
+        manipulators,
+        {frontend_conn, backend_conn}
+      )
+
+    {_, {frontend_conn, backend_conn}} =
+      ProxyManipulatorSettings.process_request_finish(
+        true,
+        manipulators,
+        {frontend_conn, backend_conn}
+      )
+
+    {:done, body, frontend_conn, backend_conn}
   end
 end

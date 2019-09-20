@@ -5,6 +5,10 @@ defmodule Proxy do
   plug(:match)
   plug(:dispatch)
 
+  @request_manipulators [AddDefaultAllowedGroups]
+  @response_manipulators [AddMuSecretHeader]
+  @manipulators ProxyManipulatorSettings.make_settings(@request_manipulators, @response_manipulators)
+
   defmacro easy_forward(conn, path, endpoint) do
     endpoint_info =
       if is_binary(endpoint) do
@@ -13,13 +17,12 @@ defmodule Proxy do
         endpoint
       end
 
-    IO.inspect(endpoint_info)
-
     quote do
       ConnectionForwarder.forward(
         unquote(conn),
         unquote(path),
-        unquote(Macro.escape(endpoint_info))
+        unquote(Macro.escape(endpoint_info)),
+        @manipulators
       )
     end
   end
@@ -33,7 +36,7 @@ defmodule Proxy do
   end
 
   match "/hello/*path" do
-    ConnectionForwarder.forward(conn, path, "https://veeakker.be/")
+    ConnectionForwarder.forward(conn, path, "https://veeakker.be/",  @manipulators)
 
     # {:ok, pid } = ConnectionForwarder.start_link( %{ scheme: :http, host: "redpencil.io", port: 80, base_path: "/" } )
     # {:ok, conn } = ConnectionForwarder.proxy( pid, conn )
@@ -41,6 +44,6 @@ defmodule Proxy do
   end
 
   match "/nieuws/*path" do
-    ConnectionForwarder.forward(conn, path, "https://veeakker.be/nieuws/")
+    ConnectionForwarder.forward(conn, path, "https://veeakker.be/nieuws/", @manipulators)
   end
 end
