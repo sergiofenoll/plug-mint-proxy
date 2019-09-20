@@ -187,7 +187,7 @@ defmodule ConnectionForwarder do
       )
 
     headers = [{"secret-be-here", "Here come mu.semte.ch powers"} | headers]
-    frontend_conn = Plug.Conn.merge_resp_headers(frontend_conn, headers)
+    frontend_conn = %{ frontend_conn | resp_headers: headers }
 
     state
     |> Map.put(:frontend_conn, frontend_conn)
