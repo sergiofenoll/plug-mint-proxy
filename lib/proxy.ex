@@ -5,8 +5,8 @@ defmodule Proxy do
   plug(:match)
   plug(:dispatch)
 
-  @request_manipulators [DropAcceptEncodingHeader,AddDefaultAllowedGroups]
-  @response_manipulators [AddMuSecretHeader]
+  @request_manipulators [Manipulators.DropHostHeader,Manipulators.AddHelloWorldHeader]
+  @response_manipulators [Manipulators.AddHelloWorldHeader]
   @manipulators ProxyManipulatorSettings.make_settings(@request_manipulators, @response_manipulators)
 
   defmacro easy_forward(conn, path, endpoint) do
@@ -29,18 +29,10 @@ defmodule Proxy do
 
   match "/" do
     easy_forward(conn, [], "http://redpencil.io")
-    # ConnectionForwarder.forward conn, [], "http://redpencil.io/"
-    # {:ok, pid } = ConnectionForwarder.start_link( %{ scheme: :http, host: "redpencil.io", port: 80, base_path: "/" } )
-    # {:ok, conn } = ConnectionForwarder.proxy( pid, conn )
-    # conn
   end
 
   match "/hello/*path" do
     ConnectionForwarder.forward(conn, path, "https://veeakker.be/",  @manipulators)
-
-    # {:ok, pid } = ConnectionForwarder.start_link( %{ scheme: :http, host: "redpencil.io", port: 80, base_path: "/" } )
-    # {:ok, conn } = ConnectionForwarder.proxy( pid, conn )
-    # conn
   end
 
   match "/nieuws/*path" do
