@@ -179,7 +179,7 @@ defmodule ConnectionForwarder do
     %{frontend_conn: frontend_conn, backend_conn: backend_conn, manipulators: manipulators} =
       state
 
-    {headers, {backend_conn, frontend_conn}} =
+    {headers, {frontend_conn, backend_conn}} =
       ProxyManipulatorSettings.process_response_headers(
         headers,
         manipulators,
@@ -211,7 +211,7 @@ defmodule ConnectionForwarder do
     %{frontend_conn: frontend_conn, backend_conn: backend_conn, manipulators: manipulators} =
       state
 
-    {new_data, {backend_conn, frontend_conn}} =
+    {new_data, {frontend_conn, backend_conn}} =
       ProxyManipulatorSettings.process_response_chunk(
         new_data,
         manipulators,
