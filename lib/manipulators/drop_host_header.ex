@@ -9,4 +9,10 @@ defmodule Manipulators.DropHostHeader do
 
     {new_headers, connection}
   end
+
+  @impl true
+  def chunk(_,_), do: :skip
+
+  @impl true
+  def finish(_,_), do: :skip
 end
