@@ -50,7 +50,6 @@ defmodule ConnectionForwarder do
       |> Plug.Conn.assign(:extra_path, extra_path)
       |> Plug.Conn.assign(:base_path, base_path)
 
-    # case ConnectionForwarder.start_link({scheme, host, port}) do
     connection_spec = {scheme, host, port}
 
     case ConnectionPool.get_connection(connection_spec) do
@@ -108,10 +107,19 @@ defmodule ConnectionForwarder do
     base_path = frontend_conn.assigns[:base_path]
     full_path = base_path <> Enum.join(extra_path, "/")
 
+    full_path =
+      case frontend_conn.query_string do
+        "" ->
+          full_path
+
+        qs ->
+          full_path <> "?" <> qs
+      end
+
     # TODO: get actual headers and pass them along
     # {{frontend_conn, backend_host_conn}, headers} =
     {headers, {frontend_conn, backend_host_conn}} =
-      Map.get( frontend_conn, :req_headers )
+      Map.get(frontend_conn, :req_headers)
       |> ProxyManipulatorSettings.process_request_headers(
         manipulators,
         {frontend_conn, backend_host_conn}
@@ -187,7 +195,7 @@ defmodule ConnectionForwarder do
       )
 
     headers = [{"secret-be-here", "Here come mu.semte.ch powers"} | headers]
-    frontend_conn = Map.put( frontend_conn, :resp_headers, headers )
+    frontend_conn = Map.put(frontend_conn, :resp_headers, headers)
 
     state
     |> Map.put(:frontend_conn, frontend_conn)
@@ -297,7 +305,7 @@ defmodule ConnectionForwarder do
   end
 
   defp manipulate_full_plug_request_body({:done, body, frontend_conn}, manipulators, backend_conn) do
-    {body,{frontend_conn, backend_conn}} =
+    {body, {frontend_conn, backend_conn}} =
       ProxyManipulatorSettings.process_request_chunk(
         body,
         manipulators,
