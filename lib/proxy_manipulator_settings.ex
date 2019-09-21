@@ -10,6 +10,12 @@ defmodule ProxyManipulatorSettings do
 
   @doc "Constructs a new ProxyManipulatorSettings struct"
   def make_settings(request_manipulators, response_manipulators) do
+    request_manipulators
+    |> Enum.map( &Code.ensure_compiled/1 )
+
+    response_manipulators
+    |> Enum.map( &Code.ensure_compiled/1 )
+
     %__MODULE__{request: request_manipulators, response: response_manipulators}
   end
 
