@@ -10,7 +10,7 @@ defmodule ConnectionPool do
 
   @spec get_connection(ConnectionForwarder.connection_spec()) :: {:ok, pid()} | {:error, any()}
   def get_connection(connection_spec) do
-    GenServer.call(@name, {:get_connection, connection_spec})
+    GenServer.call(@name, {:get_connection, connection_spec}, 15_000)
   end
 
   @spec get_new_connection(ConnectionForwarder.connection_spec()) ::

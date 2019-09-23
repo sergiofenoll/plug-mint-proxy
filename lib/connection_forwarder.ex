@@ -87,7 +87,7 @@ defmodule ConnectionForwarder do
   end
 
   def proxy(pid, conn, manipulators) do
-    GenServer.call(pid, {:proxy, conn, manipulators})
+    GenServer.call(pid, {:proxy, conn, manipulators}, 600_000)
   end
 
   ## Callbacks
