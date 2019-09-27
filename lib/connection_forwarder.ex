@@ -155,6 +155,10 @@ defmodule ConnectionForwarder do
         IO.inspect(message, label: "Unknown message received")
         {:noreply, state}
 
+      {:error, _, %Mint.TransportError{reason: :closed}, _} ->
+        ConnectionPool.remove_connection(Map.get(state, :connection_spec), self())
+        {:noreply, state}
+
       error = {:error, _, _, _} ->
         IO.inspect(error, label: "HTTP stream error occurred")
         # TODO: kill the connection PID

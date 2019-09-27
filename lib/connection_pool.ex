@@ -11,6 +11,7 @@ defmodule ConnectionPool do
   @spec get_connection(ConnectionForwarder.connection_spec()) :: {:ok, pid()} | {:error, any()}
   def get_connection(connection_spec) do
     GenServer.call(@name, {:get_connection, connection_spec}, 15_000)
+    |> IO.inspect( label: "Retrieved connection for connection spec #{inspect( connection_spec )}" )
   end
 
   @spec get_new_connection(ConnectionForwarder.connection_spec()) ::
@@ -59,8 +60,6 @@ defmodule ConnectionPool do
 
   @impl true
   def handle_call({:get_connection, connection_spec}, _from, state) do
-    IO.inspect( connection_spec, label: "Retrieving connection for spec" )
-
     case Map.get(state, connection_spec) do
       [connection | rest] ->
         new_state = Map.update(state, connection_spec, [], fn _ -> rest end)
