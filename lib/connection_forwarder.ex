@@ -194,7 +194,6 @@ defmodule ConnectionForwarder do
         {frontend_conn, backend_conn}
       )
 
-    headers = [{"secret-be-here", "Here come mu.semte.ch powers"} | headers]
     frontend_conn = Map.put(frontend_conn, :resp_headers, headers)
 
     state
