@@ -87,7 +87,10 @@ defmodule ConnectionForwarder do
   end
 
   def proxy(pid, conn, manipulators) do
-    GenServer.call(pid, {:proxy, conn, manipulators}, 600_000)
+    # It seems Cowboy does not succeed in fetching the request inside
+    # the proxy process so we now fetch it in the Plug process itself.
+    {:done, body, conn} = ConnectionForwarder.get_full_plug_request_body(conn)
+    GenServer.call(pid, {:proxy, conn, body, manipulators}, 600_000)
   end
 
   ## Callbacks
@@ -98,7 +101,7 @@ defmodule ConnectionForwarder do
   end
 
   @impl true
-  def handle_call({:proxy, frontend_conn, manipulators}, from, state) do
+  def handle_call({:proxy, frontend_conn, request_body, manipulators}, from, state) do
     %{backend_host_conn: backend_host_conn} = state
 
     state = Map.put(state, :manipulators, manipulators)
@@ -116,9 +119,7 @@ defmodule ConnectionForwarder do
           full_path <> "?" <> qs
       end
 
-    # TODO: get actual headers and pass them along
-    # {{frontend_conn, backend_host_conn}, headers} =
-    {headers, {frontend_conn, backend_host_conn}} =
+    {headers, {_, backend_host_conn}} =
       Map.get(frontend_conn, :req_headers)
       |> ProxyManipulatorSettings.process_request_headers(
         manipulators,
@@ -126,8 +127,7 @@ defmodule ConnectionForwarder do
       )
 
     {:done, body, frontend_conn, backend_host_conn} =
-      get_full_plug_request_body(frontend_conn)
-      |> manipulate_full_plug_request_body(manipulators, backend_host_conn)
+        manipulate_full_plug_request_body(request_body, frontend_conn, backend_host_conn, manipulators)
 
     method = Map.get(frontend_conn, :method)
 
@@ -174,6 +174,7 @@ defmodule ConnectionForwarder do
           responses
           |> Enum.reduce(new_state, fn chunk, state ->
             # IO.inspect(elem(chunk, 0), label: "Processing chunk type")
+            # IO.inspect(chunk, label: "Processing chunk")
             process_chunk(chunk, state)
           end)
 
@@ -252,9 +253,22 @@ defmodule ConnectionForwarder do
            frontend_conn: frontend_conn,
            connection_spec: connection_spec,
            backend_conn: backend_conn,
-           manipulators: manipulators
+           manipulators: manipulators,
+           return_status: return_status
          } = state
        ) do
+
+    frontend_conn =
+      case Map.get(frontend_conn, :state) do
+        value when value in [:sent, :chunked] ->
+          IO.puts "No need to send response"
+          frontend_conn # response was sent
+        _ ->
+          IO.puts "Sending response"
+          frontend_conn
+          |> Plug.Conn.send_resp(return_status, "")
+      end
+
     {_, {frontend_conn, backend_conn}} =
       ProxyManipulatorSettings.process_response_finish(
         true,
@@ -286,8 +300,8 @@ defmodule ConnectionForwarder do
     state
   end
 
-  defp get_full_plug_request_body(conn, body \\ "") do
-    case Plug.Conn.read_body(conn) do
+  def get_full_plug_request_body(conn, body \\ "") do
+    case Plug.Conn.read_body(conn, read_length: 1000, read_timeout: 15000) do
       {:ok, stuff, conn} ->
         {:done, body <> stuff, conn}
 
@@ -299,15 +313,7 @@ defmodule ConnectionForwarder do
     end
   end
 
-  defp manipulate_full_plug_request_body(
-         {:error, frontend_conn, reason},
-         _manipulators,
-         _backend_conn
-       ) do
-    {:error, frontend_conn, reason}
-  end
-
-  defp manipulate_full_plug_request_body({:done, body, frontend_conn}, manipulators, backend_conn) do
+  defp manipulate_full_plug_request_body(body, frontend_conn, backend_conn, manipulators) do
     {body, {frontend_conn, backend_conn}} =
       ProxyManipulatorSettings.process_request_chunk(
         body,
