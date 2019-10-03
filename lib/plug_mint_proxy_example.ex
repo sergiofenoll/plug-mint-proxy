@@ -1,4 +1,4 @@
-defmodule Proxy do
+defmodule PlugMintProxyExample do
   use Plug.Router
 
   plug(Plug.Logger)
