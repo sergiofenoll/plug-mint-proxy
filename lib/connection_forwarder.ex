@@ -56,13 +56,15 @@ defmodule ConnectionForwarder do
 
     connection_spec = {scheme, host, port}
 
+    {:done, body, frontend_conn} = ConnectionForwarder.get_full_plug_request_body(frontend_conn)
+
     case ConnectionPool.get_connection(connection_spec) do
       {:ok, pid} ->
         EnvLog.inspect(connection_spec, :log_connection_setup,
           label: "Got connection for spec, ready to proxy"
         )
 
-        case ConnectionForwarder.proxy(pid, frontend_conn, manipulators) do
+        case ConnectionForwarder.proxy(pid, frontend_conn, body, manipulators) do
           {:ok, conn} ->
             conn
 
@@ -86,7 +88,7 @@ defmodule ConnectionForwarder do
                 frontend_conn
 
               {:ok, pid} ->
-                case ConnectionForwarder.proxy(pid, frontend_conn, manipulators) do
+                case ConnectionForwarder.proxy(pid, frontend_conn, body, manipulators) do
                   {:ok, conn} ->
                     conn
 
@@ -106,10 +108,9 @@ defmodule ConnectionForwarder do
     end
   end
 
-  def proxy(pid, conn, manipulators) do
+  def proxy(pid, conn, body, manipulators) do
     # It seems Cowboy does not succeed in fetching the request inside
     # the proxy process so we now fetch it in the Plug process itself.
-    {:done, body, conn} = ConnectionForwarder.get_full_plug_request_body(conn)
     GenServer.call(pid, {:proxy, conn, body, manipulators}, 600_000)
   end
 
@@ -356,7 +357,7 @@ defmodule ConnectionForwarder do
         {frontend_conn, backend_conn}
       )
 
-    EnvLog.log(:connection_setup, "Will respond to proxy requester with new frontend connection")
+    EnvLog.log(:log_connection_setup, "Will respond to proxy requester with new frontend connection")
 
     GenServer.reply(from, {:ok, frontend_conn})
 
