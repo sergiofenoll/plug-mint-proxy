@@ -20,9 +20,13 @@ defmodule EnvLog do
   @spec inspect(any(), log_name, any()) :: any()
   def inspect(content, name, opts \\ []) do
     if Application.get_env(:plug_mint_proxy, name) do
-      IO.inspect(content, opts)
-    else
+      transform = Keyword.get(opts, :transform, fn x -> x end)
+
       content
+      |> transform.()
+      |> IO.inspect(Keyword.delete(opts, :transform))
     end
+
+    content
   end
 end

@@ -147,7 +147,7 @@ defmodule ConnectionForwarder do
         {frontend_conn, backend_host_conn}
       )
 
-    {:done, body, frontend_conn, backend_host_conn} =
+    {:done, request_body, frontend_conn, backend_host_conn} =
       manipulate_full_plug_request_body(
         request_body,
         frontend_conn,
@@ -158,8 +158,9 @@ defmodule ConnectionForwarder do
     method = Map.get(frontend_conn, :method)
 
     EnvLog.log(:log_backend_communication, "Executing backend request")
+    EnvLog.inspect( request_body, :log_request_body, label: "Request body for backend" )
 
-    case Mint.HTTP.request(backend_host_conn, method, full_path, headers, body) do
+    case Mint.HTTP.request(backend_host_conn, method, full_path, headers, request_body) do
       {:ok, backend_conn, request_ref} ->
         EnvLog.log(:log_backend_communication, "Backend request started sucessfully")
 
@@ -368,7 +369,7 @@ defmodule ConnectionForwarder do
       |> Map.put(:frontend_conn, frontend_conn)
       |> Map.put(:backend_conn, backend_conn)
 
-    EnvLog.log(:connection_setup, "Will return connection to pool")
+    EnvLog.log(:log_connection_setup, "Will return connection to pool")
 
     ConnectionPool.return_connection(connection_spec, self())
 
