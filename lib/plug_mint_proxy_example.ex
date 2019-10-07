@@ -35,6 +35,10 @@ defmodule PlugMintProxyExample do
     easy_forward(conn, [], "http://redpencil.io")
   end
 
+  match "/editor-documents/*path" do
+    ConnectionForwarder.forward(conn, path, "http://localhost:8080/editor-documents/", @manipulators)
+  end
+
   match "/hello/*path" do
     ConnectionForwarder.forward(conn, path, "https://veeakker.be/",  @manipulators)
   end

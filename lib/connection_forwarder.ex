@@ -40,7 +40,11 @@ defmodule ConnectionForwarder do
         ) :: Plug.Conn.t() | {:error, any()}
   def forward(frontend_conn, extra_path, backend_string, manipulators)
       when is_binary(backend_string) do
-    backend_string_info = extract_info_from_backend_string(backend_string)
+    backend_string_info =
+      backend_string
+      |> extract_info_from_backend_string()
+      |> EnvLog.inspect(:log_connection_setup, label: "Parsed info from backend string")
+
     forward(frontend_conn, extra_path, backend_string_info, manipulators)
   end
 
@@ -54,6 +58,10 @@ defmodule ConnectionForwarder do
 
     case ConnectionPool.get_connection(connection_spec) do
       {:ok, pid} ->
+        EnvLog.inspect(connection_spec, :log_connection_setup,
+          label: "Got connection for spec, ready to proxy"
+        )
+
         case ConnectionForwarder.proxy(pid, frontend_conn, manipulators) do
           {:ok, conn} ->
             conn
@@ -61,11 +69,20 @@ defmodule ConnectionForwarder do
           {:error, _} ->
             # ignore the old connection and try with a fresh connection
 
+            EnvLog.inspect(connection_spec, :log_connection_setup,
+              label: "Could not proxy, trying with a new connection"
+            )
+
             # TODO: kill the old connection process (no need to remove
             # it, it's not in the pool)
             case ConnectionPool.get_new_connection(connection_spec) do
               {:error, reason} ->
                 IO.inspect({:error, reason}, label: "An error occurred")
+
+                EnvLog.inspect(connection_spec, :log_connection_setup,
+                  label: "Could get a new connection"
+                )
+
                 frontend_conn
 
               {:ok, pid} ->
@@ -82,6 +99,9 @@ defmodule ConnectionForwarder do
 
       {:error, reason} ->
         IO.inspect({:error, reason}, label: "An error occurred")
+
+        EnvLog.inspect(connection_spec, :log_connection_setup, label: "Could not get a connection")
+
         frontend_conn
     end
   end
@@ -127,12 +147,21 @@ defmodule ConnectionForwarder do
       )
 
     {:done, body, frontend_conn, backend_host_conn} =
-        manipulate_full_plug_request_body(request_body, frontend_conn, backend_host_conn, manipulators)
+      manipulate_full_plug_request_body(
+        request_body,
+        frontend_conn,
+        backend_host_conn,
+        manipulators
+      )
 
     method = Map.get(frontend_conn, :method)
 
+    EnvLog.log(:log_backend_communication, "Executing backend request")
+
     case Mint.HTTP.request(backend_host_conn, method, full_path, headers, body) do
       {:ok, backend_conn, request_ref} ->
+        EnvLog.log(:log_backend_communication, "Backend request started sucessfully")
+
         new_state =
           state
           |> Map.put(:backend_conn, backend_conn)
@@ -144,6 +173,10 @@ defmodule ConnectionForwarder do
         {:noreply, new_state}
 
       {:error, _conn, reason} ->
+        EnvLog.inspect(reason, :log_backend_communication,
+          label: "Could not initiate backend request"
+        )
+
         {:reply, {:error, reason}, state}
     end
   end
@@ -153,19 +186,30 @@ defmodule ConnectionForwarder do
     case Mint.HTTP.stream(backend_conn, message) do
       :unknown ->
         IO.inspect(message, label: "Unknown message received")
+        EnvLog.log(:log_backend_communication, "Received unknown TCP message from backend")
         {:noreply, state}
 
       {:error, _, %Mint.TransportError{reason: :closed}, _} ->
+        EnvLog.log(:log_backend_communication, "Received TCP close message from backend")
         ConnectionPool.remove_connection(Map.get(state, :connection_spec), self())
         {:noreply, state}
 
       error = {:error, _, _, _} ->
         IO.inspect(error, label: "HTTP stream error occurred")
+
+        EnvLog.inspect(
+          error,
+          :log_backend_communication,
+          label: "Received erroneous TCP message from backend"
+        )
+
         # TODO: kill the connection PID
         ConnectionPool.remove_connection(Map.get(state, :connection_spec), self())
         {:noreply, state}
 
       {:ok, backend_conn, responses} ->
+        EnvLog.log(:log_backend_communication, "Received ok TCP message from backend, processing")
+
         new_state =
           state
           |> Map.put(:backend_conn, backend_conn)
@@ -175,6 +219,10 @@ defmodule ConnectionForwarder do
           |> Enum.reduce(new_state, fn chunk, state ->
             # IO.inspect(elem(chunk, 0), label: "Processing chunk type")
             # IO.inspect(chunk, label: "Processing chunk")
+            EnvLog.inspect(elem(chunk, 0), :log_backend_communication,
+              label: "Processing chunk type"
+            )
+
             process_chunk(chunk, state)
           end)
 
@@ -185,10 +233,14 @@ defmodule ConnectionForwarder do
   defp process_chunk({:status, _, status_code}, state) do
     # %{frontend_conn: frontend_conn} = state
     # new_frontend_conn = Plug.Conn.put_status(frontend_conn, status_code)
+    EnvLog.inspect(status_code, :log_backend_communication, label: "Processing received status")
+
     Map.put(state, :return_status, status_code)
   end
 
   defp process_chunk({:headers, _, headers}, state) do
+    EnvLog.inspect(headers, :log_backend_communication, label: "Processing received headers")
+
     %{frontend_conn: frontend_conn, backend_conn: backend_conn, manipulators: manipulators} =
       state
 
@@ -207,10 +259,17 @@ defmodule ConnectionForwarder do
   end
 
   defp process_chunk(
-         {:data, _, _} = message,
+         {:data, _, new_data} = message,
          %{headers_sent: false, return_status: return_status, frontend_conn: frontend_conn} =
            state
        ) do
+    EnvLog.log(
+      :log_backend_communication,
+      "Processing received body chunk when no headers sent yet"
+    )
+
+    EnvLog.inspect(new_data, :log_response_body, label: "Received body chunk")
+
     new_state =
       state
       |> Map.put(:frontend_conn, Plug.Conn.send_chunked(frontend_conn, return_status))
@@ -220,6 +279,9 @@ defmodule ConnectionForwarder do
   end
 
   defp process_chunk({:data, _, new_data}, state) do
+    EnvLog.log(:log_backend_communication, "Processing received body chunk")
+    EnvLog.inspect(new_data, :log_response_body, label: "Received body chunk")
+
     %{frontend_conn: frontend_conn, backend_conn: backend_conn, manipulators: manipulators} =
       state
 
@@ -235,13 +297,23 @@ defmodule ConnectionForwarder do
       |> Map.put(:frontend_conn, frontend_conn)
       |> Map.put(:backend_conn, backend_conn)
 
+    EnvLog.log(:log_frontend_communication, "Sending chunked response")
+
     case Plug.Conn.chunk(frontend_conn, new_data) do
       {:ok, new_frontend_conn} ->
+        EnvLog.log(:log_frontend_communication, "Managed to send frontend response")
+
         state
         |> Map.put(:frontend_conn, new_frontend_conn)
 
       {:error, :closed} ->
         IO.puts("Could not proxy body further, socket already closed")
+
+        EnvLog.log(
+          :log_frontend_communication,
+          "Failed to send frontend response due to closed socket"
+        )
+
         state
     end
   end
@@ -257,14 +329,22 @@ defmodule ConnectionForwarder do
            return_status: return_status
          } = state
        ) do
+    EnvLog.log(:log_backend_communication, "Received done chunk")
 
     frontend_conn =
       case Map.get(frontend_conn, :state) do
         value when value in [:sent, :chunked] ->
-          IO.puts "No need to send response"
-          frontend_conn # response was sent
+          EnvLog.log(
+            :log_backend_communication,
+            "Response is sent or chunked, no need to send extra"
+          )
+
+          # response was sent
+          frontend_conn
+
         _ ->
-          IO.puts "Sending response"
+          EnvLog.log(:log_backend_communication, "Response status with empty body will be sent")
+
           frontend_conn
           |> Plug.Conn.send_resp(return_status, "")
       end
@@ -276,6 +356,8 @@ defmodule ConnectionForwarder do
         {frontend_conn, backend_conn}
       )
 
+    EnvLog.log(:connection_setup, "Will respond to proxy requester with new frontend connection")
+
     GenServer.reply(from, {:ok, frontend_conn})
 
     # should this include backend_host_conn ?
@@ -285,30 +367,46 @@ defmodule ConnectionForwarder do
       |> Map.put(:frontend_conn, frontend_conn)
       |> Map.put(:backend_conn, backend_conn)
 
+    EnvLog.log(:connection_setup, "Will return connection to pool")
+
     ConnectionPool.return_connection(connection_spec, self())
 
     new_state
   end
 
   defp process_chunk({:error, _, _} = message, state) do
+    EnvLog.inspect(message, :log_backend_communication,
+      label: "Error message received from backend"
+    )
+
     IO.inspect(message, label: "Error message occurred")
     state
   end
 
   defp process_chunk(message, state) do
+    EnvLog.inspect(message, :log_backend_communication,
+      label: "Unknown message received from backend"
+    )
+
     IO.inspect(elem(message, 0), label: "Unprocessed message of type")
     state
   end
 
   def get_full_plug_request_body(conn, body \\ "") do
+    EnvLog.log(:log_frontend_communication, "Getting full request body")
+
     case Plug.Conn.read_body(conn, read_length: 1000, read_timeout: 15000) do
       {:ok, stuff, conn} ->
+        EnvLog.inspect(body, :log_frontend_communication, label: "Full request body")
         {:done, body <> stuff, conn}
 
       {:more, stuff, conn} ->
+        EnvLog.log(:log_frontend_communication, "Got request chunk")
+        EnvLog.inspect(stuff, :log_request_body, label: "Request chunk")
         get_full_plug_request_body(conn, body <> stuff)
 
       {:error, reason} ->
+        EnvLog.inspect(reason, :log_frontend_communication, label: "Error receiving request body")
         {:error, conn, reason}
     end
   end

@@ -31,50 +31,68 @@ defmodule ProxyManipulatorSettings do
 
   @spec process_request_headers(headers(), t, connection_pair()) :: {headers(), connection_pair}
   def process_request_headers(headers, settings, connection_pair) do
+    EnvLog.inspect( headers, :log_request_processing, label: "Going to process request headers" )
+
     settings
     |> request_manipulators()
     |> Enum.map(&get_header_manipulator/1)
     |> run_manipulators(headers, connection_pair)
+    |> EnvLog.inspect( :log_request_processing, label: "Processed request headers" )
   end
 
   @spec process_response_headers(headers(), t, connection_pair()) :: {headers(), connection_pair}
   def process_response_headers(headers, settings, connection_pair) do
+    EnvLog.inspect( headers, :log_response_processing, label: "Going to process response headers" )
+
     settings
     |> response_manipulators()
     |> Enum.map(&get_header_manipulator/1)
     |> run_manipulators(headers, connection_pair)
+    |> EnvLog.inspect( :log_response_processing, label: "Processed response headers" )
   end
 
   @spec process_request_chunk(binary(), t, connection_pair()) :: {binary(), connection_pair}
   def process_request_chunk(chunk, settings, connection_pair) do
+    EnvLog.inspect( chunk, :log_request_processing, label: "Going to process request chunk" )
+
     settings
     |> request_manipulators()
     |> Enum.map(&get_chunk_manipulator/1)
     |> run_manipulators(chunk, connection_pair)
+    |> EnvLog.inspect( :log_request_processing, label: "Processed request chunk" )
   end
 
   @spec process_response_chunk(binary(), t, connection_pair()) :: {binary(), connection_pair}
   def process_response_chunk(chunk, settings, connection_pair) do
+    EnvLog.inspect( chunk, :log_response_processing, label: "Going to process response chunk" )
+
     settings
     |> response_manipulators()
     |> Enum.map(&get_chunk_manipulator/1)
     |> run_manipulators(chunk, connection_pair)
+    |> EnvLog.inspect( :log_response_processing, label: "Processed response chunk" )
   end
 
   @spec process_request_finish(boolean(), t, connection_pair()) :: {binary(), connection_pair}
   def process_request_finish(finish, settings, connection_pair) do
+    EnvLog.inspect( finish, :log_request_processing, label: "Going to process request finish" )
+
     settings
     |> request_manipulators()
     |> Enum.map(&get_finish_manipulator/1)
     |> run_manipulators(finish, connection_pair)
+    |> EnvLog.inspect( :log_request_processing, label: "Processed request finish" )
   end
 
   @spec process_response_finish(boolean(), t, connection_pair()) :: {binary(), connection_pair}
   def process_response_finish(finish, settings, connection_pair) do
+    EnvLog.inspect( finish, :log_response_processing, label: "Going to process response finish" )
+
     settings
     |> response_manipulators()
     |> Enum.map(&get_finish_manipulator/1)
     |> run_manipulators(finish, connection_pair)
+    |> EnvLog.inspect( :log_response_processing, label: "Processed response finish" )
   end
 
   @typep input_type :: headers() | binary() | boolean

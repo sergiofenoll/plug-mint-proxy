@@ -3,15 +3,16 @@ defmodule ConnectionPool do
 
   use GenServer
 
-
   def start_link(info) do
     GenServer.start_link(__MODULE__, info, name: @name)
   end
 
   @spec get_connection(ConnectionForwarder.connection_spec()) :: {:ok, pid()} | {:error, any()}
   def get_connection(connection_spec) do
+    EnvLog.inspect(connection_spec, :log_connection_setup, label: "Requesting connection for spec")
+
     GenServer.call(@name, {:get_connection, connection_spec}, 15_000)
-    |> IO.inspect( label: "Retrieved connection for connection spec #{inspect( connection_spec )}" )
+    |> IO.inspect(label: "Retrieved connection for connection spec #{inspect(connection_spec)}")
   end
 
   @spec get_new_connection(ConnectionForwarder.connection_spec()) ::
@@ -37,7 +38,10 @@ defmodule ConnectionPool do
 
   @impl true
   def handle_cast({:return_connection, connection_spec, connection}, state) do
-    IO.inspect( connection, label: "Returning connection" )
+    connection
+    |> IO.inspect(label: "Returning connection")
+    |> EnvLog.inspect(:log_connection_setup, label: "Returned connection")
+
     new_state =
       state
       |> Map.update(connection_spec, [connection], fn values -> [connection | values] end)
@@ -47,7 +51,9 @@ defmodule ConnectionPool do
 
   @impl true
   def handle_cast({:remove_connection, connection_spec, connection}, state) do
-    IO.inspect( connection, label: "Removing connection" )
+    connection
+    |> IO.inspect(label: "Removing connection")
+    |> EnvLog.inspect(:log_connection_setup, label: "Removing connection")
 
     new_state =
       state
@@ -64,9 +70,11 @@ defmodule ConnectionPool do
       [connection | rest] ->
         new_state = Map.update(state, connection_spec, [], fn _ -> rest end)
 
+        EnvLog.inspect(connection, :log_connection_setup, label: "Found connection for spec")
         {:reply, {:ok, connection}, new_state}
 
       _ ->
+        EnvLog.inspect( connection_spec, :log_connection_setup, label: "Made new connection for spec")
         {:reply, get_new_connection(connection_spec), state}
     end
   end

@@ -2,6 +2,28 @@
 # and its dependencies with the aid of the Mix.Config module.
 use Mix.Config
 
+defmodule CH do
+  def system_boolean(name) do
+    case String.downcase(System.get_env(name) || "") do
+      "true" -> true
+      "yes" -> true
+      "1" -> true
+      "on" -> true
+      _ -> false
+    end
+  end
+end
+
+config :plug_mint_proxy,
+  author: :"mu-semtech",
+  log_backend_communication: CH.system_boolean("LOG_BACKEND_COMMUNICATION"),
+  log_frontend_communication: CH.system_boolean("LOG_FRONTEND_COMMUNICATION"),
+  log_request_processing: CH.system_boolean("LOG_FRONTEND_PROCESSING"),
+  log_response_processing: CH.system_boolean("LOG_BACKEND_PROCESSING"),
+  log_connection_setup: CH.system_boolean("LOG_CONNECTION_SETUP"),
+  log_request_body: CH.system_boolean("LOG_REQUEST_BODY"),
+  log_response_body: CH.system_boolean("LOG_RESPONSE_BODY")
+
 # This configuration is loaded before any dependency and is restricted
 # to this project. If another project depends on this project, this
 # file won't be loaded nor affect the parent project. For this reason,
