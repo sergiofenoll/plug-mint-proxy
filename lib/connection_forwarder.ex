@@ -140,7 +140,7 @@ defmodule ConnectionForwarder do
           full_path <> "?" <> qs
       end
 
-    {headers, {_, backend_host_conn}} =
+    {headers, {frontend_conn, backend_host_conn}} =
       Map.get(frontend_conn, :req_headers)
       |> ProxyManipulatorSettings.process_request_headers(
         manipulators,
