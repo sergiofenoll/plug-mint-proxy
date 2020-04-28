@@ -12,7 +12,9 @@ defmodule ConnectionPool do
     EnvLog.inspect(connection_spec, :log_connection_setup, label: "Requesting connection for spec")
 
     GenServer.call(@name, {:get_connection, connection_spec}, 15_000)
-    |> IO.inspect(label: "Retrieved connection for connection spec #{inspect(connection_spec)}")
+    |> EnvLog.inspect(:log_connection_pool_processing,
+      label: "Retrieved connection for connection spec #{inspect(connection_spec)}"
+    )
   end
 
   @spec get_new_connection(ConnectionForwarder.connection_spec()) ::
@@ -44,8 +46,8 @@ defmodule ConnectionPool do
   @impl true
   def handle_cast({:return_connection, connection_spec, connection}, state) do
     connection
-    |> IO.inspect(label: "Returning connection")
     |> EnvLog.inspect(:log_connection_setup, label: "Returned connection")
+    |> EnvLog.inspect(:log_connection_pool_processing, label: "Returned connection")
 
     new_state =
       state
@@ -57,8 +59,8 @@ defmodule ConnectionPool do
   @impl true
   def handle_cast({:remove_connection, connection_spec, connection}, state) do
     connection
-    |> IO.inspect(label: "Removing connection")
     |> EnvLog.inspect(:log_connection_setup, label: "Removing connection")
+    |> EnvLog.inspect(:log_connection_pool_processing, label: "Removing connection")
 
     new_state =
       state
@@ -71,23 +73,19 @@ defmodule ConnectionPool do
 
   @impl true
   def handle_call({:clear_connections}, _from, state) do
-    IO.inspect( state, label: "state" )
-
-    long_list =
+    process_list =
       Map.keys(state)
-      |> Enum.map( &(Map.get( state, &1) ) )
+      |> Enum.map(&Map.get(state, &1))
       |> Enum.concat()
 
-    IO.inspect( long_list, label: "Processes to kill" )
-
-    long_list
-    |> Enum.map( fn (proc) ->
+    process_list
+    |> Enum.map(fn proc ->
       proc
-      |> IO.inspect( label: "Killing process" )
-      |> Process.exit( :kill )
-    end )
+      |> IO.inspect(label: "Killing process")
+      |> Process.exit(:kill)
+    end)
 
-    {:reply, long_list, %{}}
+    {:reply, process_list, %{}}
   end
 
   @impl true
@@ -100,9 +98,11 @@ defmodule ConnectionPool do
         {:reply, {:ok, connection}, new_state}
 
       _ ->
-        EnvLog.inspect( connection_spec, :log_connection_setup, label: "Made new connection for spec")
+        EnvLog.inspect(connection_spec, :log_connection_setup,
+          label: "Made new connection for spec"
+        )
+
         {:reply, get_new_connection(connection_spec), state}
     end
   end
-
 end

@@ -77,11 +77,13 @@ defmodule ConnectionForwarder do
 
             # TODO: kill the old connection process (no need to remove
             # it, it's not in the pool)
-            IO.inspect( pid, label: "Killing old connection" )
-            Process.exit( pid, :kill )
+            Process.exit(pid, :kill)
+
             case ConnectionPool.get_new_connection(connection_spec) do
               {:error, reason} ->
-                IO.inspect({:error, reason}, label: "An error occurred")
+                EnvLog.inspect({:error, reason}, :log_connection_failure,
+                  label: "Error occurred when getting connection"
+                )
 
                 EnvLog.inspect(connection_spec, :log_connection_setup,
                   label: "Could get a new connection"
@@ -113,6 +115,9 @@ defmodule ConnectionForwarder do
   def proxy(pid, conn, body, manipulators) do
     # It seems Cowboy does not succeed in fetching the request inside
     # the proxy process so we now fetch it in the Plug process itself.
+
+    # TODO: make wait time for proxy configurable (here and inside
+    # process)
     GenServer.call(pid, {:proxy, conn, body, manipulators}, 600_000)
   end
 
@@ -160,7 +165,7 @@ defmodule ConnectionForwarder do
     method = Map.get(frontend_conn, :method)
 
     EnvLog.log(:log_backend_communication, "Executing backend request")
-    EnvLog.inspect( request_body, :log_request_body, label: "Request body for backend" )
+    EnvLog.inspect(request_body, :log_request_body, label: "Request body for backend")
 
     case Mint.HTTP.request(backend_host_conn, method, full_path, headers, request_body) do
       {:ok, backend_conn, request_ref} ->
@@ -189,17 +194,18 @@ defmodule ConnectionForwarder do
   def handle_info(message, %{backend_conn: backend_conn} = state) do
     case Mint.HTTP.stream(backend_conn, message) do
       :unknown ->
-        IO.inspect(message, label: "Unknown message received")
         EnvLog.log(:log_backend_communication, "Received unknown TCP message from backend")
+        EnvLog.log(:log_connection_failure, "Received unknown TCP message from backend")
         {:noreply, state}
 
       {:error, _, %Mint.TransportError{reason: :closed}, _} ->
         EnvLog.log(:log_backend_communication, "Received TCP close message from backend")
+        EnvLog.log(:log_connection_failure, "Received unknown TCP message from backend")
         ConnectionPool.remove_connection(Map.get(state, :connection_spec), self())
         {:stop, "Mint transport error", state}
 
       error = {:error, _, _, _} ->
-        IO.inspect(error, label: "HTTP stream error occurred")
+        EnvLog.inspect(error, :log_connection_failure, "HTTP stream error occurred")
 
         EnvLog.inspect(
           error,
@@ -221,8 +227,6 @@ defmodule ConnectionForwarder do
         new_state =
           responses
           |> Enum.reduce(new_state, fn chunk, state ->
-            # IO.inspect(elem(chunk, 0), label: "Processing chunk type")
-            # IO.inspect(chunk, label: "Processing chunk")
             EnvLog.inspect(elem(chunk, 0), :log_backend_communication,
               label: "Processing chunk type"
             )
@@ -311,7 +315,7 @@ defmodule ConnectionForwarder do
         |> Map.put(:frontend_conn, new_frontend_conn)
 
       {:error, :closed} ->
-        IO.puts("Could not proxy body further, socket already closed")
+        EnvLog.log(:log_connection_failure, "Could not proxy body further, socket already closed")
 
         EnvLog.log(
           :log_frontend_communication,
@@ -360,7 +364,10 @@ defmodule ConnectionForwarder do
         {frontend_conn, backend_conn}
       )
 
-    EnvLog.log(:log_connection_setup, "Will respond to proxy requester with new frontend connection")
+    EnvLog.log(
+      :log_connection_setup,
+      "Will respond to proxy requester with new frontend connection"
+    )
 
     GenServer.reply(from, {:ok, frontend_conn})
 
@@ -383,7 +390,8 @@ defmodule ConnectionForwarder do
       label: "Error message received from backend"
     )
 
-    IO.inspect(message, label: "Error message occurred")
+    EnvLog.inspect(message, :log_connection_failure, label: "Error message received from backend")
+
     state
   end
 
@@ -392,7 +400,8 @@ defmodule ConnectionForwarder do
       label: "Unknown message received from backend"
     )
 
-    IO.inspect(elem(message, 0), label: "Unprocessed message of type")
+    EnvLog.inspect(message, :log_connection_failure, label: "Unprocessed message")
+
     state
   end
 
