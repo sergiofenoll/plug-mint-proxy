@@ -31,6 +31,11 @@ defmodule ConnectionPool do
     GenServer.cast(@name, {:remove_connection, connection_spec, connection})
   end
 
+  @spec clear_connections() :: :ok
+  def clear_connections() do
+    GenServer.call(@name, {:clear_connections})
+  end
+
   @impl true
   def init(_) do
     {:ok, %{}}
@@ -65,6 +70,27 @@ defmodule ConnectionPool do
   end
 
   @impl true
+  def handle_call({:clear_connections}, _from, state) do
+    IO.inspect( state, label: "state" )
+
+    long_list =
+      Map.keys(state)
+      |> Enum.map( &(Map.get( state, &1) ) )
+      |> Enum.concat()
+
+    IO.inspect( long_list, label: "Processes to kill" )
+
+    long_list
+    |> Enum.map( fn (proc) ->
+      proc
+      |> IO.inspect( label: "Killing process" )
+      |> Process.exit( :kill )
+    end )
+
+    {:reply, long_list, %{}}
+  end
+
+  @impl true
   def handle_call({:get_connection, connection_spec}, _from, state) do
     case Map.get(state, connection_spec) do
       [connection | rest] ->
@@ -78,4 +104,5 @@ defmodule ConnectionPool do
         {:reply, get_new_connection(connection_spec), state}
     end
   end
+
 end

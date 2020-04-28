@@ -77,6 +77,8 @@ defmodule ConnectionForwarder do
 
             # TODO: kill the old connection process (no need to remove
             # it, it's not in the pool)
+            IO.inspect( pid, label: "Killing old connection" )
+            Process.exit( pid, :kill )
             case ConnectionPool.get_new_connection(connection_spec) do
               {:error, reason} ->
                 IO.inspect({:error, reason}, label: "An error occurred")
