@@ -202,7 +202,7 @@ defmodule ConnectionForwarder do
         EnvLog.log(:log_backend_communication, "Received TCP close message from backend")
         EnvLog.log(:log_connection_failure, "Received unknown TCP message from backend")
         ConnectionPool.remove_connection(Map.get(state, :connection_spec), self())
-        {:stop, "Mint transport error", state}
+        {:stop, "Mint transport error", self()}
 
       error = {:error, _, _, _} ->
         EnvLog.inspect(error, :log_connection_failure, "HTTP stream error occurred")
@@ -215,7 +215,7 @@ defmodule ConnectionForwarder do
 
         # TODO: kill the connection PID
         ConnectionPool.remove_connection(Map.get(state, :connection_spec), self())
-        {:stop, "Received erroneous TCP message from backend", state}
+        {:stop, "Received erroneous TCP message from backend", self()}
 
       {:ok, backend_conn, responses} ->
         EnvLog.log(:log_backend_communication, "Received ok TCP message from backend, processing")
