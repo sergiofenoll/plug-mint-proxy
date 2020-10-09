@@ -9,6 +9,7 @@ defmodule EnvLog do
           | :log_response_body
           | :log_connection_failure
           | :log_connection_pool_processing
+          | :log_proxy_url_on_call
 
   @spec log(log_name, any()) :: any()
   def log(name, content) do

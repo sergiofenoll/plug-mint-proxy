@@ -49,6 +49,8 @@ defmodule ConnectionForwarder do
   end
 
   def forward(frontend_conn, extra_path, {scheme, host, port, base_path}, manipulators) do
+    EnvLog.log(:log_proxy_url_on_call, "Proxying to: #{base_path <> Enum.join(extra_path, "/")}")
+
     frontend_conn =
       frontend_conn
       |> Plug.Conn.assign(:extra_path, extra_path)

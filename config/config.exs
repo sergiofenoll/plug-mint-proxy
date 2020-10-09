@@ -24,7 +24,8 @@ config :plug_mint_proxy,
   log_request_body: CH.system_boolean("LOG_REQUEST_BODY"),
   log_response_body: CH.system_boolean("LOG_RESPONSE_BODY"),
   log_connection_failures: CH.system_boolean("LOG_CONNECTION_FAILURES"),
-  log_connection_pool_processing: CH.system_boolean("LOG_CONNECTION_POOL_PROCESSING")
+  log_connection_pool_processing: CH.system_boolean("LOG_CONNECTION_POOL_PROCESSING"),
+  log_proxy_url_on_call: CH.system_boolean("LOG_PROXY_URL_ON_CALL")
 
 # This configuration is loaded before any dependency and is restricted
 # to this project. If another project depends on this project, this
