@@ -10,7 +10,7 @@ by adding `plug_mint_proxy` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:plug_mint_proxy, "~> 0.1.0"}
+    {:plug_mint_proxy, "~> 0.2.0"}
   ]
 end
 ```
