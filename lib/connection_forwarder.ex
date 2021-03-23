@@ -77,8 +77,6 @@ defmodule ConnectionForwarder do
               label: "Could not proxy, trying with a new connection"
             )
 
-            # TODO: kill the old connection process (no need to remove
-            # it, it's not in the pool)
             Process.exit(pid, :kill)
 
             case ConnectionPool.get_new_connection(connection_spec) do
@@ -91,7 +89,7 @@ defmodule ConnectionForwarder do
                   label: "Could get a new connection"
                 )
 
-                frontend_conn
+                {:error, {:could_not_get_new_connection, reason}}
 
               {:ok, pid} ->
                 case ConnectionForwarder.proxy(pid, frontend_conn, body, manipulators) do
@@ -100,7 +98,7 @@ defmodule ConnectionForwarder do
 
                   {:error, reason} ->
                     IO.inspect({:error, reason}, label: "An error occurred")
-                    frontend_conn
+                    {:error, {:could_not_proxy_with_new_connection, reason}}
                 end
             end
         end
