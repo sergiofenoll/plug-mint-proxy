@@ -1,4 +1,12 @@
 defmodule ConnectionPool do
+  @moduledoc """
+  Provides a pool of connections to the backend.
+
+  Setting up a connection to the backend can take a few milliseconds.
+  This ConnectionPool keeps connections so you can recycle them on busy
+  times.
+  """
+
   @name __MODULE__
 
   use GenServer
@@ -34,7 +42,7 @@ defmodule ConnectionPool do
   end
 
   @spec clear_connections() :: :ok
-  def clear_connections() do
+  def clear_connections do
     GenServer.call(@name, {:clear_connections})
   end
 
@@ -79,9 +87,9 @@ defmodule ConnectionPool do
       |> Enum.concat()
 
     process_list
-    |> Enum.map(fn proc ->
+    |> Enum.each(fn proc ->
       proc
-      |> IO.inspect(label: "Killing process")
+      # |> IO.inspect(label: "Killing process")
       |> Process.exit(:kill)
     end)
 
@@ -92,9 +100,10 @@ defmodule ConnectionPool do
   def handle_call({:get_connection, connection_spec}, _from, state) do
     case Map.get(state, connection_spec) do
       [connection | rest] ->
-        new_state = Map.update(state, connection_spec, [], fn _ -> rest end)
-
         EnvLog.inspect(connection, :log_connection_setup, label: "Found connection for spec")
+
+        new_state = put_in(state[connection_spec], rest)
+
         {:reply, {:ok, connection}, new_state}
 
       _ ->
