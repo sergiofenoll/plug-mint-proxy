@@ -17,7 +17,7 @@ defmodule PlugMintProxy.MixProject do
 
   def application do
     [
-      extra_applications: [:logger, :plug, :cowboy],
+      extra_applications: [:logger, :plug],
       mod: {PlugMintProxy, []},
       env: []
     ]
@@ -28,8 +28,7 @@ defmodule PlugMintProxy.MixProject do
     [
       {:castore, "~> 0.1.0"},
       {:mint, "~> 0.4.0"},
-      {:plug, "~> 1.10.4"},
-      {:plug_cowboy, "~> 2.4.0"}
+      {:plug, "~> 1.14.0"},
     ]
   end
 
