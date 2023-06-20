@@ -28,7 +28,7 @@ defmodule PlugMintProxy.MixProject do
     [
       {:castore, "~> 0.1.0"},
       {:mint, "~> 0.4.0"},
-      {:plug, "~> 1.10.4"},
+      {:plug, "~> 1.14.0"},
     ]
   end
 
