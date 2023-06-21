@@ -9,7 +9,7 @@ defmodule PlugMintProxy do
 
   def start(_type, _args) do
     children = [{ConnectionPool, {}}]
-    opts = [strategy: :one_for:one, name: PlugMintProxy.Supervisor]
+    opts = [strategy: :one_for_one, name: PlugMintProxy.Supervisor]
     Supervisor.start_link(children, opts)
   end
 end
