@@ -1,4 +1,8 @@
 defmodule ConnectionForwarder do
+  @moduledoc """
+  This is the meat of PlugMintProxy.  It forwards connections and calls
+  manipulators.
+  """
   use GenServer
 
   require Logger
@@ -77,8 +81,6 @@ defmodule ConnectionForwarder do
               label: "Could not proxy, trying with a new connection"
             )
 
-            # TODO: kill the old connection process (no need to remove
-            # it, it's not in the pool)
             Process.exit(pid, :kill)
 
             case ConnectionPool.get_new_connection(connection_spec) do
@@ -91,7 +93,7 @@ defmodule ConnectionForwarder do
                   label: "Could get a new connection"
                 )
 
-                frontend_conn
+                {:error, {:could_not_get_new_connection, reason}}
 
               {:ok, pid} ->
                 case ConnectionForwarder.proxy(pid, frontend_conn, body, manipulators) do
@@ -99,16 +101,20 @@ defmodule ConnectionForwarder do
                     conn
 
                   {:error, reason} ->
-                    IO.inspect({:error, reason}, label: "An error occurred")
-                    frontend_conn
+                    # credo:disable-for-next-line Credo.Check.Warning.IoInspect
+                    IO.inspect({:error, reason},
+                      label: "An error occurred: failed to proxy to backend with new connection."
+                    )
+
+                    {:error, {:could_not_proxy_with_new_connection, reason}}
                 end
             end
         end
 
       {:error, reason} ->
-        IO.inspect({:error, reason}, label: "An error occurred")
-
-        EnvLog.inspect(connection_spec, :log_connection_setup, label: "Could not get a connection")
+        EnvLog.inspect(connection_spec, :log_connection_failure,
+          label: "Errored requesting connection from connection pool"
+        )
 
         frontend_conn
     end
@@ -410,7 +416,7 @@ defmodule ConnectionForwarder do
   def get_full_plug_request_body(conn, body \\ "") do
     EnvLog.log(:log_frontend_communication, "Getting full request body")
 
-    case Plug.Conn.read_body(conn, read_length: 1000, read_timeout: 15000) do
+    case Plug.Conn.read_body(conn, read_length: 1000, read_timeout: 15_000) do
       {:ok, stuff, conn} ->
         EnvLog.inspect(body, :log_frontend_communication, label: "Full request body")
         {:done, body <> stuff, conn}

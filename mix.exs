@@ -27,6 +27,8 @@ defmodule PlugMintProxy.MixProject do
   defp deps do
     [
       {:castore, "~> 0.1.0"},
+      {:dialyxir, "~> 1.0", only: [:dev], runtime: false},
+      {:credo, "~> 1.5", only: [:dev, :test], runtime: false},
       {:mint, "~> 0.4.0"},
       {:plug, "~> 1.14.0"},
     ]

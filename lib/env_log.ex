@@ -1,4 +1,12 @@
 defmodule EnvLog do
+  @moduledoc """
+  Abstraction allowing for logging of content only when certain
+  environment variables are set on the project.
+
+  Thes are most commonly read from the system environment variables, in
+  which case they should be set on the element itself.
+  """
+
   @type log_name ::
           :log_backend_communication
           | :log_frontend_communication
@@ -27,6 +35,7 @@ defmodule EnvLog do
 
       content
       |> transform.()
+      # credo:disable-for-next-line Credo.Check.Warning.IoInspect
       |> IO.inspect(Keyword.delete(opts, :transform))
     end
 
